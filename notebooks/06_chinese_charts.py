@@ -32,12 +32,12 @@ os.makedirs(OUT, exist_ok=True)
 TRACKS_CSV = os.path.join(DATA_DIR, 'tracks.csv')
 USERS_CSV  = os.path.join(DATA_DIR, 'users.csv')
 
-# ── 2. 自動下載 Kaggle 資料（兩個 dataset 各存到獨立子目錄）───────────────────
-def _first_csv(folder):
-    """Walk a folder and return the path of the first csv found."""
+# ── 2. 自動下載 Kaggle 資料 ───────────────────────────────────────────
+def _find_file(folder, exts):
+    """Walk folder and return first file matching any of the given extensions."""
     for root, _, files in os.walk(folder):
         for f in sorted(files):
-            if f.endswith('.csv'):
+            if any(f.lower().endswith(ext) for ext in exts):
                 return os.path.join(root, f)
     return None
 
@@ -47,7 +47,7 @@ def download_if_missing():
         print('資料檔案已存在，跳過下載')
         return
 
-    subprocess.run(['pip', 'install', '-q', 'kaggle'], check=True)
+    subprocess.run(['pip', 'install', '-q', 'kaggle', 'openpyxl'], check=True)
 
     downloads = [
         ('maharshipandya/-spotify-tracks-dataset',
@@ -66,17 +66,35 @@ def download_if_missing():
             ['kaggle', 'datasets', 'download', '-d', slug, '-p', dl_dir, '--unzip'],
             check=True
         )
-        csv_path = _first_csv(dl_dir)
-        if csv_path:
-            os.rename(csv_path, dest)
-            print(f'已儲存: {os.path.basename(csv_path)} -> {dest}')
+
+        # 印出解壓後所有檔案（方便除錯）
+        all_files = []
+        for root, _, files in os.walk(dl_dir):
+            for f in files:
+                all_files.append(os.path.relpath(os.path.join(root, f), dl_dir))
+        print(f'  解壓後檔案: {all_files}')
+
+        # 先找 csv，再找 xlsx
+        found = _find_file(dl_dir, ['.csv'])
+        if found:
+            os.rename(found, dest)
+            print(f'  已儲存: {os.path.basename(found)} -> {dest}')
         else:
-            raise FileNotFoundError(f'在 {dl_dir} 找不到任何 csv 檔案')
+            found_xlsx = _find_file(dl_dir, ['.xlsx', '.xls'])
+            if found_xlsx:
+                print(f'  找到 xlsx，轉換中: {found_xlsx}')
+                df_tmp = pd.read_excel(found_xlsx, engine='openpyxl')
+                df_tmp.to_csv(dest, index=False)
+                print(f'  已轉存為 csv -> {dest}')
+            else:
+                raise FileNotFoundError(
+                    f'在 {dl_dir} 找不到 csv 或 xlsx，實際檔案: {all_files}'
+                )
 
 
 download_if_missing()
 
-# ── 3. 載入資料（決對欄位名稱同步到 05_merged_analysis.py）────────────────────
+# ── 3. 載入資料 ───────────────────────────────────────────────────────────
 tracks = pd.read_csv(TRACKS_CSV)
 if 'track_genre' in tracks.columns:
     tracks = tracks.rename(columns={'track_genre': 'genre'})
@@ -88,15 +106,13 @@ for col in ['favorite_genre', 'preferred_genre', 'music_genre', 'genre',
     if col in users.columns:
         users = users.rename(columns={col: 'fav_genre'})
         break
-
-# 年齡欄位正規化
-for col in ['age', 'user_age']:
-    if col in users.columns and col != 'age':
+for col in ['user_age']:
+    if col in users.columns:
         users = users.rename(columns={col: 'age'})
         break
 
 print(f'tracks 欄位: {list(tracks.columns[:6])}')
-print(f'users  欄位: {list(users.columns[:8])}')
+print(f'users  欄位: {list(users.columns[:10])}')
 
 # ── 4. Merge 並產生 age_group ─────────────────────────────────────────────────
 AUDIO_FEATURES = ['danceability', 'energy', 'valence',
@@ -109,6 +125,7 @@ df['age_group'] = pd.cut(
     labels=['13-17', '18-24', '25-34', '35-44', '45+']
 )
 print(f'資料已載入，共 {len(df)} 筆記錄')
+print(f'age_group 分布: {df["age_group"].value_counts().to_dict()}')
 
 # ── 標籤對照表 ────────────────────────────────────────────────────────────
 FEATURE_ZH = {
@@ -180,7 +197,7 @@ def plot_age_violin():
 def plot_gender_boxplot():
     gender_col = 'gender' if 'gender' in df.columns else None
     if not gender_col:
-        print('\u627e不到 gender 欄位，跳過性別箱形圖')
+        print('找不到 gender 欄位，跳過')
         return
     gender_order = [g for g in ['Male', 'Female', 'Non-binary'] if g in df[gender_col].values]
     gender_labels_list = [GENDER_ZH.get(g, g) for g in gender_order]
