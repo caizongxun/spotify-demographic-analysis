@@ -5,39 +5,87 @@
 """
 
 import os
+import subprocess
 import numpy as np
 import pandas as pd
-import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from matplotlib.patches import FancyArrowPatch
 from scipy import stats
 
 # ── 0. 中文字體設定（Colab 環境）──────────────────────────────────────────
-import subprocess
 subprocess.run(['apt-get', 'install', '-y', '-q', 'fonts-noto-cjk'], check=False)
-# 重新掃描字體快取
 fm._load_fontmanager(try_read_cache=False)
 
-# 找到 NotoSansCJK 字體
 cjk_fonts = [f for f in fm.findSystemFonts() if 'NotoSansCJK' in f or 'NotoSerifCJK' in f]
 if cjk_fonts:
     font_prop = fm.FontProperties(fname=cjk_fonts[0])
     plt.rcParams['font.family'] = font_prop.get_name()
 else:
-    # fallback：直接指定名稱
     plt.rcParams['font.family'] = 'Noto Sans CJK TC'
+plt.rcParams['axes.unicode_minus'] = False
 
-plt.rcParams['axes.unicode_minus'] = False  # 負號正常顯示
-
-# ── 1. 載入資料 ───────────────────────────────────────────────────────────
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-tracks = pd.read_csv(os.path.join(BASE, 'data', 'tracks.csv'))
-users  = pd.read_csv(os.path.join(BASE, 'data', 'users.csv'))
-df = pd.merge(users, tracks, on='track_id', how='inner')
-
-OUT = os.path.join(BASE, 'outputs', 'figures_zh')
+# ── 1. 路徑設定 ─────────────────────────────────────────────────────────────
+BASE       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR   = os.path.join(BASE, 'data')
+OUT        = os.path.join(BASE, 'outputs', 'figures_zh')
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUT, exist_ok=True)
+
+TRACKS_CSV = os.path.join(DATA_DIR, 'tracks.csv')
+USERS_CSV  = os.path.join(DATA_DIR, 'users.csv')
+
+# ── 2. 自動下載 Kaggle 資料（若不存在）───────────────────────────────────
+def download_if_missing():
+    if os.path.exists(TRACKS_CSV) and os.path.exists(USERS_CSV):
+        print('資料檔案已存在，跳過下載')
+        return
+
+    print('下載 Kaggle 資料中...')
+    subprocess.run(['pip', 'install', '-q', 'kaggle'], check=True)
+
+    # 下載 tracks dataset
+    subprocess.run([
+        'kaggle', 'datasets', 'download',
+        '-d', 'maharshipandya/-spotify-tracks-dataset',
+        '-p', DATA_DIR, '--unzip'
+    ], check=True)
+
+    # 下載 users dataset
+    subprocess.run([
+        'kaggle', 'datasets', 'download',
+        '-d', 'meeraajayakumar/spotify-user-behavior-dataset',
+        '-p', DATA_DIR, '--unzip'
+    ], check=True)
+
+    # 自動找到實際檔名并重命名（以防原始檔名不同）
+    csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
+    print(f'找到檔案: {csv_files}')
+
+    # 對應檔名（依實際 Kaggle 檔名調整）
+    TRACK_CANDIDATES = ['dataset.csv', 'tracks.csv', 'spotify_tracks.csv']
+    USER_CANDIDATES  = ['Spotify_Behavior_Dataset.csv', 'users.csv', 'spotify_user_behavior_dataset.csv']
+
+    for name in TRACK_CANDIDATES:
+        src = os.path.join(DATA_DIR, name)
+        if os.path.exists(src) and src != TRACKS_CSV:
+            os.rename(src, TRACKS_CSV)
+            print(f'重命名 {name} -> tracks.csv')
+            break
+
+    for name in USER_CANDIDATES:
+        src = os.path.join(DATA_DIR, name)
+        if os.path.exists(src) and src != USERS_CSV:
+            os.rename(src, USERS_CSV)
+            print(f'重命名 {name} -> users.csv')
+            break
+
+download_if_missing()
+
+# ── 3. 載入資料 ───────────────────────────────────────────────────────────
+tracks = pd.read_csv(TRACKS_CSV)
+users  = pd.read_csv(USERS_CSV)
+df = pd.merge(users, tracks, on='track_id', how='inner')
+print(f'資料已載入，共 {len(df)} 筆記錄')
 
 # ── 標籤對照表 ────────────────────────────────────────────────────────────
 FEATURE_ZH = {
@@ -52,17 +100,10 @@ FEATURES = list(FEATURE_ZH.keys())
 
 AGE_ORDER = ['13-17', '18-24', '25-34', '35-44', '45+']
 AGE_ZH    = ['13-17歲', '18-24歲', '25-34歲', '35-44歲', '45歲以上']
-
 GENDER_ZH = {'Male': '男性', 'Female': '女性', 'Non-binary': '非二元性別'}
+REGION_ZH = {'Western': '西方', 'Asia': '亞洲', 'Latin America': '拉丁美洲', 'Africa': '非洲'}
 
-REGION_ZH = {
-    'Western':       '西方',
-    'Asia':          '亞洲',
-    'Latin America': '拉丁美洲',
-    'Africa':        '非洲',
-}
-
-# ── 2. 年齡 × 折線圖（平均特徵隨年齡變化）────────────────────────────────
+# ── 4. 年齡 × 折線圖 ─────────────────────────────────────────────────────
 def plot_age_line():
     df['age_group'] = pd.Categorical(df['age_group'], categories=AGE_ORDER, ordered=True)
     age_mean = df.groupby('age_group')[FEATURES].mean().reindex(AGE_ORDER)
@@ -82,22 +123,20 @@ def plot_age_line():
         for i, v in enumerate(age_mean[feat].values):
             ax.annotate(f'{v:.2f}', (AGE_ZH[i], v), textcoords='offset points',
                         xytext=(0, 8), ha='center', fontsize=9)
-
     plt.tight_layout()
     path = os.path.join(OUT, 'Z1_年齡折線圖.png')
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f'已儲存：{path}')
 
-# ── 3. 年齡 × 小提琴圖（分布形狀）────────────────────────────────────────
+# ── 5. 年齡 × 小提琴圖 ─────────────────────────────────────────────────────
 def plot_age_violin():
     df['age_group'] = pd.Categorical(df['age_group'], categories=AGE_ORDER, ordered=True)
     plot_feats = ['danceability', 'energy', 'valence', 'acousticness']
+    colors = ['#5B9BD5', '#ED7D31', '#70AD47', '#FFC000', '#FF6B6B']
 
     fig, axes = plt.subplots(1, 4, figsize=(18, 6))
     fig.suptitle('各年齡層音樂特徵分布（小提琴圖）', fontsize=15, fontweight='bold')
-
-    colors = ['#5B9BD5', '#ED7D31', '#70AD47', '#FFC000', '#FF6B6B']
 
     for ax, feat in zip(axes, plot_feats):
         data_by_age = [df[df['age_group'] == ag][feat].dropna().values for ag in AGE_ORDER]
@@ -108,7 +147,6 @@ def plot_age_violin():
             pc.set_alpha(0.7)
         parts['cmedians'].set_color('black')
         parts['cmedians'].set_linewidth(2)
-
         ax.set_xticks(range(len(AGE_ORDER)))
         ax.set_xticklabels(AGE_ZH, rotation=30, fontsize=10)
         ax.set_title(FEATURE_ZH[feat], fontsize=13)
@@ -121,7 +159,7 @@ def plot_age_violin():
     plt.close()
     print(f'已儲存：{path}')
 
-# ── 4. 性別 × 箱形圖 ─────────────────────────────────────────────────────
+# ── 6. 性別 × 箱形圖 ─────────────────────────────────────────────────────
 def plot_gender_boxplot():
     gender_order = ['Male', 'Female', 'Non-binary']
     gender_labels_list = [GENDER_ZH[g] for g in gender_order]
@@ -132,20 +170,16 @@ def plot_gender_boxplot():
 
     for ax, feat in zip(axes.flatten(), FEATURES):
         data_by_gender = [df[df['gender'] == g][feat].dropna().values for g in gender_order]
-
         bp = ax.boxplot(data_by_gender, patch_artist=True, notch=False,
                         medianprops=dict(color='darkorange', linewidth=2))
         for patch, color in zip(bp['boxes'], colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.75)
-
-        # Kruskal-Wallis 檢定
         stat, p = stats.kruskal(*data_by_gender)
         sig = 'ns' if p > 0.05 else ('*' if p > 0.01 else '**')
         ax.text(0.97, 0.97, f'K-W {sig}', transform=ax.transAxes,
                 ha='right', va='top', fontsize=9,
                 bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='gray'))
-
         ax.set_xticks([1, 2, 3])
         ax.set_xticklabels(gender_labels_list, fontsize=11)
         ax.set_title(FEATURE_ZH[feat], fontsize=13)
@@ -158,24 +192,25 @@ def plot_gender_boxplot():
     plt.close()
     print(f'已儲存：{path}')
 
-# ── 5. 性別 × Genre 堆疊柱狀圖 ───────────────────────────────────────────
+# ── 7. 性別 × Genre 堆疊柱狀圖 ───────────────────────────────────────────
 def plot_gender_genre_bar():
     gender_order = ['Male', 'Female', 'Non-binary']
     ct = pd.crosstab(df['gender'], df['genre'])
-    ct = ct.loc[gender_order]
+    ct = ct.loc[[g for g in gender_order if g in ct.index]]
     ct_pct = ct.div(ct.sum(axis=1), axis=0) * 100
 
     fig, ax = plt.subplots(figsize=(13, 6))
     fig.suptitle('各性別音樂類型偏好（堆疊柱狀圖）', fontsize=15, fontweight='bold')
 
-    bottom = np.zeros(len(gender_order))
+    bottom = np.zeros(len(ct_pct))
     cmap = plt.get_cmap('tab20')
     genres = ct_pct.columns.tolist()
+    y_labels = [GENDER_ZH.get(g, g) for g in ct_pct.index]
 
     for i, genre in enumerate(genres):
         vals = ct_pct[genre].values
-        bars = ax.barh([GENDER_ZH[g] for g in gender_order], vals,
-                       left=bottom, color=cmap(i / len(genres)), label=genre, alpha=0.85)
+        bars = ax.barh(y_labels, vals, left=bottom,
+                       color=cmap(i / len(genres)), label=genre, alpha=0.85)
         for bar, val in zip(bars, vals):
             if val >= 5:
                 ax.text(bar.get_x() + bar.get_width() / 2,
@@ -192,7 +227,7 @@ def plot_gender_genre_bar():
     plt.close()
     print(f'已儲存：{path}')
 
-# ── 6. 地區 × 雷達圖 ─────────────────────────────────────────────────────
+# ── 8. 地區 × 雷達圖 ─────────────────────────────────────────────────────
 def plot_region_radar():
     radar_feats = ['danceability', 'energy', 'valence', 'acousticness', 'speechiness', 'instrumentalness']
     labels_zh = [FEATURE_ZH[f] for f in radar_feats]
@@ -202,8 +237,8 @@ def plot_region_radar():
 
     regions = list(REGION_ZH.keys())
     region_means = df.groupby('region')[radar_feats].mean()
-
     colors = ['#4472C4', '#ED7D31', '#70AD47', '#FF4B4B']
+
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     fig.suptitle('各地區音樂特徵輪廓（雷達圖）', fontsize=15, fontweight='bold', y=1.02)
 
