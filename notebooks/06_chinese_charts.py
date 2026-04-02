@@ -7,7 +7,8 @@
   Z2 年齡 x Strip+Box 圖 (小提琴替代)
   Z3 性別 x 箱形圖
   Z4 性別 x Genre 堆疊柱狀圖
-  Z5 訂閱方案 x 雷達圖 (地區替代)
+  Z5 訂閱方案 x 雷達圖
+  Z6 地區 x 音樂特徵雷達圖（kevinam 72 國 Top50 資料集）
 """
 
 import os
@@ -36,8 +37,9 @@ DATA_DIR   = os.path.join(BASE, 'data')
 OUT        = os.path.join(BASE, 'outputs', 'figures_zh')
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUT, exist_ok=True)
-TRACKS_CSV = os.path.join(DATA_DIR, 'tracks.csv')
-USERS_CSV  = os.path.join(DATA_DIR, 'users.csv')
+TRACKS_CSV  = os.path.join(DATA_DIR, 'tracks.csv')
+USERS_CSV   = os.path.join(DATA_DIR, 'users.csv')
+GLOBAL_CSV  = os.path.join(DATA_DIR, 'global_top50.csv')
 
 # ── 2. 下載 ─────────────────────────────────────────────────────────────────
 def _find_file(folder, exts):
@@ -48,18 +50,20 @@ def _find_file(folder, exts):
     return None
 
 def download_if_missing():
-    if os.path.exists(TRACKS_CSV) and os.path.exists(USERS_CSV):
-        print('資料已存在，跳過下載')
-        return
-    subprocess.run(['pip', 'install', '-q', 'kaggle', 'openpyxl'], check=True)
-    for slug, dl_dir, dest in [
+    need = [
         ('maharshipandya/-spotify-tracks-dataset',
          os.path.join(DATA_DIR, 'tracks_raw'), TRACKS_CSV),
         ('meeraajayakumar/spotify-user-behavior-dataset',
-         os.path.join(DATA_DIR, 'users_raw'),  USERS_CSV),
-    ]:
-        if os.path.exists(dest):
-            continue
+         os.path.join(DATA_DIR, 'users_raw'), USERS_CSV),
+        ('kevinam/spotify-global-top-50-song-data-oct-18-nov-19',
+         os.path.join(DATA_DIR, 'global_raw'), GLOBAL_CSV),
+    ]
+    missing = [(s, d, t) for s, d, t in need if not os.path.exists(t)]
+    if not missing:
+        print('資料已存在，跳過下載')
+        return
+    subprocess.run(['pip', 'install', '-q', 'kaggle', 'openpyxl'], check=True)
+    for slug, dl_dir, dest in missing:
         os.makedirs(dl_dir, exist_ok=True)
         subprocess.run(['kaggle', 'datasets', 'download', '-d', slug,
                         '-p', dl_dir, '--unzip'], check=True)
@@ -70,7 +74,8 @@ def download_if_missing():
         print(f'  解壓後檔案: {all_files}')
         found = _find_file(dl_dir, ['.csv'])
         if found:
-            os.rename(found, dest)
+            import shutil
+            shutil.copy(found, dest)
         else:
             found_x = _find_file(dl_dir, ['.xlsx', '.xls'])
             if found_x:
@@ -135,7 +140,6 @@ df['age_group'] = pd.cut(
 matched = df[AUDIO_FEATURES[0]].notna().sum()
 print(f'資料 {len(df)} 筆，genre merge 配對 {matched}/{len(df)}')
 print(f'age_group: {df["age_group"].value_counts().sort_index().to_dict()}')
-print(f'users 欄位: {list(users.columns)}')
 
 # ── 標籤對照表 ────────────────────────────────────────────────────────────
 FEATURE_ZH = {
@@ -152,8 +156,31 @@ AGE_ZH     = ['13-17歲', '18-24歲', '25-34歲', '35-44歲', '45歲以上']
 GENDER_ZH  = {'Male': '男性', 'Female': '女性', 'Non-binary': '非二元性別'}
 AGE_COLORS = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#b07aa1']
 
+# 國家代碼 → 洲別對照
+COUNTRY_TO_CONTINENT = {
+    'US': '北美洲', 'CA': '北美洲', 'MX': '北美洲',
+    'GB': '歐洲', 'DE': '歐洲', 'FR': '歐洲', 'IT': '歐洲',
+    'ES': '歐洲', 'NL': '歐洲', 'SE': '歐洲', 'NO': '歐洲',
+    'DK': '歐洲', 'FI': '歐洲', 'PL': '歐洲', 'BE': '歐洲',
+    'CH': '歐洲', 'AT': '歐洲', 'PT': '歐洲', 'IE': '歐洲',
+    'CZ': '歐洲', 'HU': '歐洲', 'RO': '歐洲', 'GR': '歐洲',
+    'TR': '歐洲', 'SK': '歐洲', 'HR': '歐洲',
+    'BR': '南美洲', 'AR': '南美洲', 'CL': '南美洲', 'CO': '南美洲',
+    'PE': '南美洲', 'VE': '南美洲', 'EC': '南美洲', 'BO': '南美洲',
+    'UY': '南美洲', 'PY': '南美洲',
+    'JP': '亞洲', 'KR': '亞洲', 'TW': '亞洲', 'HK': '亞洲',
+    'SG': '亞洲', 'MY': '亞洲', 'TH': '亞洲', 'PH': '亞洲',
+    'ID': '亞洲', 'VN': '亞洲', 'IN': '亞洲', 'PK': '亞洲',
+    'IL': '亞洲',
+    'AU': '大洋洲', 'NZ': '大洋洲',
+    'ZA': '非洲', 'NG': '非洲', 'EG': '非洲', 'MA': '非洲',
+    'GT': '中美洲/加勒比海', 'SV': '中美洲/加勒比海', 'HN': '中美洲/加勒比海',
+    'CR': '中美洲/加勒比海', 'PA': '中美洲/加勒比海', 'DO': '中美洲/加勒比海',
+    'global': '全球',
+}
 
-# ── Z0. 音樂特徵分布（Histogram + KDE 中文版） ───────────────────────────────
+
+# ── Z0. 音樂特徵分布 ──────────────────────────────────────────────────────
 def plot_feature_distribution():
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     fig.suptitle('音樂特徵分布（直方圖 + KDE）', fontsize=15, fontweight='bold')
@@ -207,48 +234,35 @@ def plot_age_line():
     print('已儲存：Z1_年齡折線圖.png')
 
 
-# ── Z2. 年齡 x Strip + Box 圖（小提琴圖替代） ───────────────────────────────
+# ── Z2. 年齡 x Strip + Box 圖 ────────────────────────────────────────────
 def plot_age_strip():
-    """
-    不用 seaborn，純 matplotlib 實作:
-      - 第一層：简化算法抄點圖 (strip)
-      - 第二層：箱形圖覆蓋，顯示 IQR 與中位數
-    """
     tmp = df.copy()
     tmp['age_group'] = pd.Categorical(tmp['age_group'], categories=AGE_ORDER, ordered=True)
     plot_feats = ['danceability', 'energy', 'valence', 'acousticness']
-
     fig, axes = plt.subplots(1, 4, figsize=(18, 6))
     fig.suptitle('各年齡層音樂特徵分布（抒點 + 箱形圖）', fontsize=15, fontweight='bold')
-
     np.random.seed(42)
     for ax, feat in zip(axes, plot_feats):
         for i, ag in enumerate(AGE_ORDER):
             sub = tmp[tmp['age_group'] == ag][feat].dropna().values
             if len(sub) == 0:
                 continue
-            # jitter
             jitter = np.random.uniform(-0.18, 0.18, len(sub))
             ax.scatter(np.full(len(sub), i) + jitter, sub,
                        alpha=0.45, s=18, color=AGE_COLORS[i], zorder=2)
-            # box
             q1, med, q3 = np.percentile(sub, [25, 50, 75])
             ax.plot([i - 0.2, i + 0.2], [med, med], color='black', lw=2.5, zorder=3)
             rect = plt.Rectangle((i - 0.2, q1), 0.4, q3 - q1,
                                   fill=False, edgecolor='black', lw=1.5, zorder=3)
             ax.add_patch(rect)
-            # mean dot
             ax.scatter([i], [sub.mean()], marker='D', s=40,
                        color='white', edgecolor='black', lw=1.5, zorder=4)
-
         ax.set_xticks(range(len(AGE_ORDER)))
         ax.set_xticklabels(AGE_ZH, rotation=30, fontsize=10)
         ax.set_title(FEATURE_ZH[feat], fontsize=13)
         ax.set_ylabel('數值 (0-1)', fontsize=10)
         ax.set_ylim(-0.05, 1.05)
         ax.grid(axis='y', linestyle='--', alpha=0.4)
-
-    # 圖例
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', markerfacecolor='gray',
                markersize=7, label='個別資料點'),
@@ -257,7 +271,6 @@ def plot_age_strip():
                markeredgecolor='black', markersize=7, label='平均値'),
     ]
     axes[-1].legend(handles=legend_elements, loc='upper right', fontsize=9)
-
     plt.tight_layout()
     plt.savefig(os.path.join(OUT, 'Z2_年齡抒點箱形圖.png'), dpi=150, bbox_inches='tight')
     plt.close()
@@ -341,12 +354,8 @@ def plot_gender_genre_bar():
     print('已儲存：Z4_性別Genre堆疊柱狀圖.png')
 
 
-# ── Z5. 訂閱方案 x 雷達圖（地區替代） ──────────────────────────────────
+# ── Z5. 訂閱方案 x 雷達圖 ────────────────────────────────────────────────
 def plot_subscription_radar():
-    """
-    users 沒有 region，用 spotify_subscription_plan 作為分組發雷達圖。
-    若欄位不存在，就用 spotify_usage_period。
-    """
     group_col = None
     for candidate in ['spotify_subscription_plan', 'spotify_usage_period',
                       'spotify_listening_device']:
@@ -356,29 +365,22 @@ def plot_subscription_radar():
     if not group_col:
         print('找不到適合雷達圖的分組欄位，跳過')
         return
-
-    groups = df[group_col].dropna().unique().tolist()
-    # 限制最多 6 組避免色彩太擠
-    groups = groups[:6]
-
+    groups = df[group_col].dropna().unique().tolist()[:6]
     radar_feats = FEATURES
     labels_zh = [FEATURE_ZH[f] for f in radar_feats]
     N = len(radar_feats)
     angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist() + [0]
-
     group_means = df.groupby(group_col)[radar_feats].mean()
     colors = ['#4472C4', '#ED7D31', '#70AD47', '#FF4B4B', '#9B59B6', '#1ABC9C']
-
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     col_zh = {
         'spotify_subscription_plan': '訂閱方案',
         'spotify_usage_period':      '使用時間',
         'spotify_listening_device':  '載具類型',
     }
     title_label = col_zh.get(group_col, group_col)
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     fig.suptitle(f'各{title_label}音樂特徵輪廓（雷達圖）',
                  fontsize=15, fontweight='bold', y=1.02)
-
     plotted = 0
     for group, color in zip(groups, colors):
         if group not in group_means.index:
@@ -390,12 +392,10 @@ def plot_subscription_radar():
         ax.plot(angles, values, linewidth=2.5, color=color, label=str(group))
         ax.fill(angles, values, alpha=0.12, color=color)
         plotted += 1
-
     if plotted == 0:
         print('雷達圖沒有有效分組，跳過')
         plt.close()
         return
-
     ax.set_thetagrids(np.degrees(angles[:-1]), labels_zh, fontsize=12)
     ax.set_ylim(0, 1)
     ax.set_yticks([0.25, 0.5, 0.75])
@@ -408,13 +408,115 @@ def plot_subscription_radar():
     print(f'已儲存：Z5_{title_label}雷達圖.png')
 
 
+# ── Z6. 地區 x 音樂特徵雷達圖（kevinam 72 國 Top50） ────────────────────
+def plot_region_radar():
+    """
+    資料集: kevinam/spotify-global-top-50-song-data-oct-18-nov-19
+    包含 72 個國家各自的 Top 50 榜單 + 音頻特徵
+    用 COUNTRY_TO_CONTINENT 將國家代碼映射到洲別，再做雷達圖
+    """
+    if not os.path.exists(GLOBAL_CSV):
+        print('找不到 global_top50.csv，跳過 Z6')
+        return
+
+    gdf = pd.read_csv(GLOBAL_CSV)
+    print(f'global_top50 欄位: {list(gdf.columns[:15])}')
+    gdf.columns = gdf.columns.str.lower().str.strip().str.replace(' ', '_')
+
+    # 找 country 欄位
+    country_col = None
+    for c in ['country', 'region', 'market', 'country_code', 'code']:
+        if c in gdf.columns:
+            country_col = c
+            break
+    if not country_col:
+        # 嘗試猜測：第一個非數值欄位
+        for c in gdf.columns:
+            if gdf[c].dtype == object and gdf[c].str.len().median() <= 4:
+                country_col = c
+                print(f'  猜測 country 欄位: {country_col}')
+                break
+    if not country_col:
+        print(f'找不到國家欄位，現有欄位: {list(gdf.columns)}')
+        return
+
+    # 確認音頻特徵欄位存在
+    radar_feats = [f for f in FEATURES if f in gdf.columns]
+    if len(radar_feats) < 3:
+        print(f'音頻特徵欄位不足: {radar_feats}，跳過 Z6')
+        return
+
+    # 映射洲別
+    gdf['continent'] = gdf[country_col].str.upper().str.strip().map(COUNTRY_TO_CONTINENT)
+    unmapped = gdf[gdf['continent'].isna()][country_col].unique()
+    if len(unmapped) > 0:
+        print(f'  未映射國家代碼（前10）: {unmapped[:10]}')
+    gdf = gdf[gdf['continent'].notna()]
+
+    # 按洲別計算平均
+    continent_means = gdf.groupby('continent')[radar_feats].mean()
+    continents = continent_means.index.tolist()
+    # 排除只剩 global 或資料太少的
+    continents = [c for c in continents if c != '全球']
+    if len(continents) < 2:
+        print(f'洲別分組不足 ({continents})，跳過 Z6')
+        return
+
+    labels_zh = [FEATURE_ZH.get(f, f) for f in radar_feats]
+    N = len(radar_feats)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist() + [0]
+
+    CONTINENT_COLORS = {
+        '北美洲': '#4472C4',
+        '歐洲':   '#ED7D31',
+        '南美洲': '#70AD47',
+        '亞洲':   '#FF4B4B',
+        '大洋洲': '#9B59B6',
+        '非洲':   '#1ABC9C',
+        '中美洲/加勒比海': '#F39C12',
+    }
+
+    fig, ax = plt.subplots(figsize=(9, 9), subplot_kw=dict(polar=True))
+    fig.suptitle('各洲別 Spotify Top50 音樂特徵輪廓（雷達圖）',
+                 fontsize=15, fontweight='bold', y=1.02)
+
+    for cont in continents:
+        if cont not in continent_means.index:
+            continue
+        row = continent_means.loc[cont, radar_feats]
+        if row.isna().all():
+            continue
+        values = row.tolist() + [row.iloc[0]]
+        color = CONTINENT_COLORS.get(cont, '#888888')
+        ax.plot(angles, values, linewidth=2.5, color=color, label=cont)
+        ax.fill(angles, values, alpha=0.10, color=color)
+
+    ax.set_thetagrids(np.degrees(angles[:-1]), labels_zh, fontsize=12)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([0.25, 0.5, 0.75])
+    ax.set_yticklabels(['0.25', '0.50', '0.75'], fontsize=9)
+    ax.grid(color='grey', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.38, 1.18), fontsize=11)
+
+    # 加上各洲代表國家數備注
+    country_counts = gdf.groupby('continent')[country_col].nunique()
+    note = '  '.join([f'{c}({country_counts.get(c,0)}國)' for c in continents])
+    fig.text(0.5, -0.02, note, ha='center', fontsize=9, color='gray')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(OUT, 'Z6_地區音樂特徵雷達圖.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print('已儲存：Z6_地區音樂特徵雷達圖.png')
+
+
 # ── 執行 ──────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     print('開始生成中文圖表...')
     plot_feature_distribution()   # Z0
     plot_age_line()               # Z1
-    plot_age_strip()              # Z2 抒點+箱形圖
+    plot_age_strip()              # Z2
     plot_gender_boxplot()         # Z3
     plot_gender_genre_bar()       # Z4
-    plot_subscription_radar()     # Z5 訂閱方案雷達圖
+    plot_subscription_radar()     # Z5
+    plot_region_radar()           # Z6 真實地區資料
     print('全部完成！圖表存放於 outputs/figures_zh/')
