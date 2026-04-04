@@ -1,31 +1,15 @@
 """
 07_x_series_charts.py
-X 系列圖表 —— 修正第 6、7、8、9、10、11 頁文不對圖問題
+X 系列圖表 —— 修正第 6、7、9、10、11 頁文不對圖問題
 
-檔名訪則：  X{N}_p{pages}_{content}.png
-  N       = X 系列編號
-  pages   = 對應简報頁數
-  content = 圖表主要內容簡述
+檔名規則：  X{N}_p{pages}_{content}.png
 
 圖表清單:
-  X1_p6_主要特徵直方圖KDE_舞動度能量情緒.png
-    第 6 頁「主要音樂特徵點估計」：僅畛舞動度、能量、情緒正向度 3 張子圖
-
-  X2_p7_右偏特徵直方圖KDE_原聲度語音度器樂度.png
-    第 7 頁「極端右偏分佈」：僅畛原聲度、語音度、純器樂度 3 張子圖
-
-  X3_p9_年齡折線圖含95CI誤差線.png
-    第 9 頁「年齡層信賴區間」：6 個特徵折線 + 95% CI 誤差線，和 公式說明
-
-  X4_p10_性別Genre比例圖含信賴區間.png
-    第 10 頁「性別比例區間估計」：堆疊柱狀圖 + 每個 Genre 每個性別的 95% CI 誤差線
-
-  X5_p11_地區效應量 eta2_橫向柱狀圖.png
-    第 11 頁「效應量 Eta-squared」：6 個特徵 η² 橫向柱狀圖，直接看出哪個特徵解釋力最強
-
-輸出：每張圖標注：
-  1. 图片左上角 or 圖底加計算公式 / 統計量註解，方便直接複製到簡報
-  2. print 輸出該圖的數字摘要，方便不上傳圖片也能得知內容
+  X1_p6_主要特徵直方圖KDE_舞動度能量情緒.png       → 第6頁
+  X2_p7_右偏特徵直方圖KDE_原聲度語音度器樂度.png   → 第7頁
+  X3_p9_年齡折線圖含95CI誤差線.png                 → 第9頁
+  X4_p10_性別Genre比例圖含信賴區間.png             → 第10頁
+  X5_p11_地區效應量_eta2_橫向柱狀圖.png            → 第11頁
 """
 
 import os
@@ -133,7 +117,6 @@ COUNTRY_TO_CONTINENT = {
 
 # ========================================================================
 # X1  p6  主要特徵直方圖+KDE  舞動度/能量/情緒正向度
-# 第 6 頁：主要音樂特徵點估計  (僅前 3 個特徵)
 # ========================================================================
 def plot_x1_p6_main_features():
     feats = ['danceability', 'energy', 'valence']
@@ -141,14 +124,14 @@ def plot_x1_p6_main_features():
     MEAN_COLORS = {'danceability':'#e74c3c', 'energy':'#e67e22', 'valence':'#8e44ad'}
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    fig.suptitle('第6頁 | 主要音樂特徵分布與點估計（舞動度 / 能量 / 情緒正向度）',
+    fig.suptitle('主要音樂特徵分布與點估計（舞動度 / 能量 / 情緒正向度）',
                  fontsize=14, fontweight='bold', fontproperties=fp())
 
     summaries = []
     for ax, feat in zip(axes, feats):
         data = tracks[feat].dropna()
-        mn, sd, med = data.mean(), data.std(), data.median()
-        summaries.append(f'{FEATURE_ZH[feat]}: 平均={mn:.3f}  SD={sd:.3f}  中位={med:.3f}')
+        mn = data.mean()
+        summaries.append(f'{FEATURE_ZH[feat]}: 平均={mn:.3f}')
 
         ax.hist(data, bins=60, color=COLOR, alpha=0.45, density=True, label='分布')
         kde = gaussian_kde(data)
@@ -161,15 +144,7 @@ def plot_x1_p6_main_features():
         ax.set_ylabel('機率密度', fontsize=10, fontproperties=fp())
         ax.legend(fontsize=9, prop=fp())
         ax.grid(alpha=0.3)
-        # 圖內註解：平均値 + 標準差
-        ax.text(0.97, 0.95, f'平均={mn:.2f}\nSD={sd:.2f}',
-                transform=ax.transAxes, ha='right', va='top', fontsize=9,
-                fontproperties=fp(),
-                bbox=dict(boxstyle='round,pad=0.4', fc='white', ec='gray', alpha=0.8))
 
-    fig.text(0.5, -0.03,
-             '點估計分別為：' + '  |  '.join(summaries),
-             ha='center', fontsize=9, color='#333', fontproperties=fp())
     plt.tight_layout()
     fname = 'X1_p6_主要特徵直方圖KDE_舞動度能量情緒.png'
     plt.savefig(os.path.join(OUT, fname), dpi=150, bbox_inches='tight')
@@ -182,7 +157,6 @@ def plot_x1_p6_main_features():
 
 # ========================================================================
 # X2  p7  右偏特徵直方圖+KDE  原聲度/語音度/純器樂度
-# 第 7 頁：極端右偏分佈
 # ========================================================================
 def plot_x2_p7_skewed_features():
     feats = ['acousticness', 'speechiness', 'instrumentalness']
@@ -190,13 +164,13 @@ def plot_x2_p7_skewed_features():
     MEAN_COLORS = {'acousticness':'#2980b9', 'speechiness':'#27ae60', 'instrumentalness':'#c0392b'}
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    fig.suptitle('第7頁 | 極端右偏音樂特徵分布（原聲度 / 語音度 / 純器樂度）',
+    fig.suptitle('極端右偏音樂特徵分布（原聲度 / 語音度 / 純器樂度）',
                  fontsize=14, fontweight='bold', fontproperties=fp())
 
     summaries = []
     for ax, feat in zip(axes, feats):
         data = tracks[feat].dropna()
-        mn, sd = data.mean(), data.std()
+        mn = data.mean()
         from scipy.stats import skew
         sk = skew(data)
         summaries.append(f'{FEATURE_ZH[feat]}: 平均={mn:.3f}  偏態={sk:.2f}')
@@ -212,15 +186,12 @@ def plot_x2_p7_skewed_features():
         ax.set_ylabel('機率密度', fontsize=10, fontproperties=fp())
         ax.legend(fontsize=9, prop=fp())
         ax.grid(alpha=0.3)
-        ax.text(0.97, 0.95,
-                f'平均={mn:.2f}\n偏態={sk:.2f}\n(右偏分佈)',
-                transform=ax.transAxes, ha='right', va='top', fontsize=9,
+        # 只標偏態係數，讓觀眾直接看到右偏的程度
+        ax.text(0.97, 0.95, f'偏態係數 = {sk:.2f}',
+                transform=ax.transAxes, ha='right', va='top', fontsize=10,
                 fontproperties=fp(),
                 bbox=dict(boxstyle='round,pad=0.4', fc='#fff9e6', ec='#e8a838', alpha=0.9))
 
-    fig.text(0.5, -0.03,
-             '點估計分別為：' + '  |  '.join(summaries),
-             ha='center', fontsize=9, color='#333', fontproperties=fp())
     plt.tight_layout()
     fname = 'X2_p7_右偏特徵直方圖KDE_原聲度語音度器樂度.png'
     plt.savefig(os.path.join(OUT, fname), dpi=150, bbox_inches='tight')
@@ -233,7 +204,6 @@ def plot_x2_p7_skewed_features():
 
 # ========================================================================
 # X3  p9  年齡折線圖 + 95% CI 誤差線  (全 6 特徵)
-# 第 9 頁：年齡層信賴區間推論
 # ========================================================================
 def plot_x3_p9_age_ci():
     tmp = df.copy()
@@ -246,7 +216,7 @@ def plot_x3_p9_age_ci():
     Z = 1.96
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
-    fig.suptitle('第9頁 | 各年齡層音樂特徵平均値 ± 95% 信賴區間',
+    fig.suptitle('各年齡層音樂特徵平均値 ± 95% 信賴區間',
                  fontsize=14, fontweight='bold', fontproperties=fp())
 
     summaries = []
@@ -279,7 +249,7 @@ def plot_x3_p9_age_ci():
         ax.set_ylim(max(0, np.nanmin(yp-cp)-0.05), min(1.05, np.nanmax(yp+cp)+0.08))
         ax.grid(axis='y', linestyle='--', alpha=0.5)
         ax.legend(fontsize=8, prop=fp())
-        summaries.append(f'{FEATURE_ZH[feat]}: 平均範圍 [{np.nanmin(yp):.2f}–{np.nanmax(yp):.2f}]  CI幅平均={np.nanmean(cp):.3f}')
+        summaries.append(f'{FEATURE_ZH[feat]}: 平均範圍 [{np.nanmin(yp):.2f}–{np.nanmax(yp):.2f}]  CI幅={np.nanmean(cp):.3f}')
 
     fig.text(0.5, -0.01,
              'CI 公式： x̄ ± 1.96·(s/√n)，誤差線不重疊表示兩組差異具統計意義',
@@ -295,8 +265,7 @@ def plot_x3_p9_age_ci():
 
 
 # ========================================================================
-# X4  p10  性別 Genre 比例 + 95% CI 誤差線
-# 第 10 頁：性別比例區間估計
+# X4  p10  性別 Genre 比例堆疊柱狀圖
 # ========================================================================
 def plot_x4_p10_gender_genre_ci():
     if 'gender' not in df.columns or 'fav_genre' not in df.columns:
@@ -308,27 +277,23 @@ def plot_x4_p10_gender_genre_ci():
     ct  = ct.loc[[g for g in gender_order if g in ct.index]]
     ct_pct = ct.div(ct.sum(axis=1), axis=0) * 100
 
-    # 95% CI for proportion: p̅ ± 1.96 * sqrt(p̅*(1-p̅)/n)
-    ns = ct.sum(axis=1)  # 各性別的總數
+    ns = ct.sum(axis=1)
     cmap = plt.get_cmap('tab20')
     genres = ct_pct.columns.tolist()
     y_labels = [GENDER_ZH.get(g, g) for g in ct_pct.index]
     n_gender = len(y_labels)
 
     fig, ax = plt.subplots(figsize=(14, max(4, n_gender * 1.8)))
-    fig.suptitle('第10頁 | 性別 × 音樂類型占比（堆疊柱狀圖）',
+    fig.suptitle('性別 × 音樂類型占比（堆疊柱狀圖）',
                  fontsize=14, fontweight='bold', fontproperties=fp())
 
     bottom = np.zeros(n_gender)
     for i, genre in enumerate(genres):
-        vals = ct_pct[genre].values / 100  # 轉為比例
+        vals = ct_pct[genre].values / 100
         pcts = vals * 100
-        # CI 寬度
-        ci = 1.96 * np.sqrt(vals * (1 - vals) / ns.values) * 100
         bars = ax.barh(y_labels, pcts, left=bottom * 100,
                        color=cmap(i / max(len(genres), 1)), label=genre, alpha=0.85)
-        # 內文字
-        for bar, pct, c_val in zip(bars, pcts, ci):
+        for bar, pct in zip(bars, pcts):
             if pct >= 5:
                 ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_y() + bar.get_height() / 2,
@@ -341,7 +306,6 @@ def plot_x4_p10_gender_genre_ci():
     ax.legend(loc='lower right', bbox_to_anchor=(1.18, 0), fontsize=9)
     ax.grid(axis='x', linestyle='--', alpha=0.4)
 
-    # 圖底 CI 公式
     fig.text(0.5, -0.04,
              '比例信賴區間公式： p̅ ± 1.96·√[p̅(1−p̅)/n]',
              ha='center', fontsize=9, color='gray', fontproperties=fp())
@@ -364,7 +328,6 @@ def plot_x4_p10_gender_genre_ci():
 
 # ========================================================================
 # X5  p11  地區 η² 橫向柱狀圖 (效應量)
-# 第 11 頁： K-W 效應量 Eta-squared
 # ========================================================================
 def plot_x5_p11_eta2_barchart():
     if not os.path.exists(GLOBAL_CSV):
@@ -406,7 +369,7 @@ def plot_x5_p11_eta2_barchart():
     colors = ['#e74c3c' if v == max(eta2_list) else '#5b9bd5' for v in eta2_list]
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    fig.suptitle('第11頁 | 地理區域對音樂特徵的效應量（η²， Kruskal-Wallis）',
+    fig.suptitle('地理區域對音樂特徵的效應量（η²，Kruskal-Wallis）',
                  fontsize=14, fontweight='bold', fontproperties=fp())
 
     bars = ax.barh(feat_labels, eta2_list, color=colors, alpha=0.85, height=0.55)
@@ -453,8 +416,8 @@ if __name__ == '__main__':
     print('''
 檔名說明：
   X1_p6_主要特徵直方圖KDE_舞動度能量情緒.png       → 第6頁  舞動度/能量/情緒正向度
-  X2_p7_右偏特徵直方圖KDE_原聲度語音度器樂度.png  → 第7頁  原聲度/語音度/純器樂度 (右偏分布)
-  X3_p9_年齡折線圖含95CI誤差線.png             → 第9頁  年齡 x 95% 信賴區間
-  X4_p10_性別Genre比例圖含信賴區間.png          → 第10頁 性別 x Genre 比例 (+ 信賴區間公式)
-  X5_p11_地區效應量_eta2_橫向柱狀圖.png         → 第11頁 效應量 eta2 各特徵橫向柱狀圖
+  X2_p7_右偏特徵直方圖KDE_原聲度語音度器樂度.png   → 第7頁  原聲度/語音度/純器樂度 (右偏)
+  X3_p9_年齡折線圖含95CI誤差線.png                 → 第9頁  年齡 x 95% 信賴區間
+  X4_p10_性別Genre比例圖含信賴區間.png             → 第10頁 性別 x Genre 比例
+  X5_p11_地區效應量_eta2_橫向柱狀圖.png            → 第11頁 效應量 eta2
 ''')
