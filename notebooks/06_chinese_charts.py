@@ -3,7 +3,7 @@
 產生中文版圖表
 圖表清單:
   Z0 音樂特徵分布（Histogram + KDE 中文版）
-  Z1 年齡 x 折線圖
+  Z1 年齡 x 折線圖 + 95% 信賴區間誤差線
   Z2 年齡 x Strip+Box 圖 (小提琴替代)
   Z3 性別 x 箱形圖
   Z4 性別 x Genre 堆疊柱狀圖
@@ -33,7 +33,6 @@ _font_path = next((p for p in _CJK_CANDIDATES if os.path.exists(p)), None)
 if _font_path:
     _fp = fm.FontProperties(fname=_font_path)
     plt.rcParams['font.family'] = _fp.get_name()
-    # 手動加入字體讓 matplotlib 認得
     fm.fontManager.addfont(_font_path)
     print(f'字體載入成功: {_font_path}  name={_fp.get_name()}')
 else:
@@ -192,7 +191,6 @@ COUNTRY_TO_CONTINENT = {
 
 # ── 共用：設字體到 figure ────────────────────────────────────────────────
 def _set_font(fig):
-    """確保每張圖都使用正確字體"""
     if _font_path:
         fp = fm.FontProperties(fname=_font_path)
         for ax in fig.get_axes():
@@ -227,40 +225,91 @@ def plot_feature_distribution():
     print('已儲存：Z0_音樂特徵分布.png')
 
 
-# ── Z1. 年齡 x 折線圖 ────────────────────────────────────────────────────────
+# ── Z1. 年齡 x 折線圖 + 95% 信賴區間誤差線 ──────────────────────────────
 def plot_age_line():
+    """
+    折線圖加入 95% 信賴區間誤差線
+    公式：CI = x̄ ± 1.96 * (s / √n)
+    誤差線不重疊 → 兩組平均值差異具統計意義
+    """
     tmp = df.copy()
     tmp['age_group'] = pd.Categorical(tmp['age_group'], categories=AGE_ORDER, ordered=True)
-    age_mean = tmp.groupby('age_group', observed=True)[FEATURES].mean().reindex(AGE_ORDER)
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+
+    # 計算每個年齡層每個特徵的 mean / std / n / CI
+    stats_df = (
+        tmp.groupby('age_group', observed=True)[FEATURES]
+        .agg(['mean', 'std', 'count'])
+        .reindex(AGE_ORDER)
+    )
+
     fp = fm.FontProperties(fname=_font_path) if _font_path else None
-    fig.suptitle('各年齡層音樂特徵平均值（折線圖）', fontsize=16, fontweight='bold',
-                 fontproperties=fp)
+    fig, axes = plt.subplots(2, 3, figsize=(14, 9))
+    fig.suptitle('各年齡層音樂特徵平均值 ± 95% 信賴區間', fontsize=15,
+                 fontweight='bold', fontproperties=fp)
+
+    Z = 1.96  # 95% 信賴水準對應的 z 值
+
     for ax, feat in zip(axes.flatten(), FEATURES):
-        vals = age_mean[feat].values.astype(float)
-        valid = ~np.isnan(vals)
-        x_p = [AGE_ZH[i] for i in range(len(AGE_ZH)) if valid[i]]
-        y_p = vals[valid]
+        means  = stats_df[feat]['mean'].values.astype(float)
+        stds   = stats_df[feat]['std'].values.astype(float)
+        counts = stats_df[feat]['count'].values.astype(float)
+
+        # CI = 1.96 * s / √n
+        ci = np.where(counts > 1, Z * stds / np.sqrt(counts), np.nan)
+
+        valid = ~np.isnan(means)
+        x_p   = [AGE_ZH[i] for i in range(len(AGE_ZH)) if valid[i]]
+        y_p   = means[valid]
+        ci_p  = ci[valid]
+        x_idx = list(range(len(x_p)))
+
         if len(y_p) == 0:
             ax.set_title(FEATURE_ZH[feat] + ' (no data)', fontsize=11)
             continue
-        ax.plot(x_p, y_p, marker='o', linewidth=2.5, color='steelblue', markersize=7)
-        ax.fill_between(x_p, y_p, alpha=0.15, color='steelblue')
-        ax.set_title(FEATURE_ZH[feat], fontsize=13, fontproperties=fp)
-        ax.set_xlabel('年齡層', fontsize=10, fontproperties=fp)
-        ax.set_ylabel('平均值 (0-1)', fontsize=10, fontproperties=fp)
-        ax.tick_params(axis='x', rotation=30)
+
+        # 折線
+        ax.plot(x_idx, y_p, marker='o', linewidth=2.5,
+                color='steelblue', markersize=7, zorder=3)
+        ax.fill_between(x_idx, y_p, alpha=0.10, color='steelblue')
+
+        # 誤差線（95% CI）
+        ax.errorbar(x_idx, y_p, yerr=ci_p,
+                    fmt='none', color='steelblue', capsize=5,
+                    capthick=1.8, elinewidth=1.8, zorder=4,
+                    label='95% CI')
+
+        # 標示平均值
+        for xi, v, c in zip(x_idx, y_p, ci_p):
+            offset = c + 0.025 if not np.isnan(c) else 0.025
+            ax.annotate(f'{v:.2f}', (xi, v),
+                        textcoords='offset points',
+                        xytext=(0, 10), ha='center', fontsize=8.5,
+                        color='#1a3a5c')
+
+        ax.set_xticks(x_idx)
+        ax.set_xticklabels(x_p, rotation=30, fontsize=10)
         if fp:
             for tick in ax.get_xticklabels():
                 tick.set_fontproperties(fp)
+
+        ax.set_title(FEATURE_ZH[feat], fontsize=13, fontproperties=fp)
+        ax.set_xlabel('年齡層', fontsize=10, fontproperties=fp)
+        ax.set_ylabel('平均值 (0-1)', fontsize=10, fontproperties=fp)
+        ax.set_ylim(max(0, np.nanmin(y_p - ci_p) - 0.05),
+                    min(1.05, np.nanmax(y_p + ci_p) + 0.08))
         ax.grid(axis='y', linestyle='--', alpha=0.5)
-        for x, v in zip(x_p, y_p):
-            ax.annotate(f'{v:.2f}', (x, v), textcoords='offset points',
-                        xytext=(0, 8), ha='center', fontsize=9)
+        ax.legend(fontsize=8, prop=fp)
+
+    # 圖底說明
+    fig.text(0.5, -0.01,
+             '誤差線 = 95% 信賴區間（CI = x̄ ± 1.96·s/√n）  '
+             '誤差線不重疊表示兩組差異具統計意義',
+             ha='center', fontsize=9, color='gray', fontproperties=fp)
+
     plt.tight_layout()
-    plt.savefig(os.path.join(OUT, 'Z1_年齡折線圖.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(OUT, 'Z1_年齡折線圖_CI.png'), dpi=150, bbox_inches='tight')
     plt.close()
-    print('已儲存：Z1_年齡折線圖.png')
+    print('已儲存：Z1_年齡折線圖_CI.png')
 
 
 # ── Z2. 年齡 x Strip + Box 圖 ────────────────────────────────────────────
@@ -335,7 +384,8 @@ def plot_gender_boxplot():
         valid = [d for d in data_by_g if len(d) > 1 and np.std(d) > 0]
         if len(valid) >= 2:
             try:
-                _, p = stats.kruskal(*valid)
+                from scipy.stats import kruskal
+                _, p = kruskal(*valid)
                 sig = 'ns' if p > 0.05 else ('*' if p > 0.01 else '**')
                 ax.text(0.97, 0.97, f'K-W {sig}', transform=ax.transAxes,
                         ha='right', va='top', fontsize=9,
@@ -451,11 +501,6 @@ def plot_subscription_radar():
 
 # ── Z6. 地區 x 音樂特徵雷達圖（kevinam 72 國 Top50） ────────────────────
 def plot_region_radar():
-    """
-    資料集: kevinam/spotify-global-top-50-song-data-oct-18-nov-19
-    包含 72 個國家各自的 Top 50 榜單 + 音頻特徵
-    用 COUNTRY_TO_CONTINENT 將國家代碼映射到洲別，再做雷達圖
-    """
     if not os.path.exists(GLOBAL_CSV):
         print('找不到 global_top50.csv，跳過 Z6')
         return
@@ -464,7 +509,6 @@ def plot_region_radar():
     print(f'global_top50 欄位: {list(gdf.columns[:15])}')
     gdf.columns = gdf.columns.str.lower().str.strip().str.replace(' ', '_')
 
-    # 找 country 欄位（已確認欄位名為 'country'）
     country_col = None
     for c in ['country', 'region', 'market', 'country_code', 'code']:
         if c in gdf.columns:
@@ -480,20 +524,17 @@ def plot_region_radar():
         print(f'找不到國家欄位，現有欄位: {list(gdf.columns)}')
         return
 
-    # 確認音頻特徵欄位
     radar_feats = [f for f in FEATURES if f in gdf.columns]
     if len(radar_feats) < 3:
         print(f'音頻特徵欄位不足: {radar_feats}，跳過 Z6')
         return
 
-    # 映射洲別
     gdf['continent'] = gdf[country_col].str.upper().str.strip().map(COUNTRY_TO_CONTINENT)
     unmapped = gdf[gdf['continent'].isna()][country_col].unique()
     if len(unmapped) > 0:
         print(f'  未映射國家代碼（前10）: {unmapped[:10]}')
     gdf = gdf[gdf['continent'].notna()]
 
-    # 按洲別計算平均
     continent_means = gdf.groupby('continent')[radar_feats].mean()
     continents = [c for c in continent_means.index.tolist() if c != '全球']
     if len(continents) < 2:
@@ -539,7 +580,6 @@ def plot_region_radar():
     ax.legend(loc='upper right', bbox_to_anchor=(1.38, 1.18), fontsize=11,
               prop=fp)
 
-    # 各洲代表國家數備注
     country_counts = gdf.groupby('continent')[country_col].nunique()
     note = '  '.join([f'{c}({country_counts.get(c,0)}國)' for c in continents])
     fig.text(0.5, -0.02, note, ha='center', fontsize=9, color='gray',
@@ -555,10 +595,10 @@ def plot_region_radar():
 if __name__ == '__main__':
     print('開始生成中文圖表...')
     plot_feature_distribution()   # Z0
-    plot_age_line()               # Z1
+    plot_age_line()               # Z1（含 95% CI 誤差線）
     plot_age_strip()              # Z2
     plot_gender_boxplot()         # Z3
     plot_gender_genre_bar()       # Z4
     plot_subscription_radar()     # Z5
-    plot_region_radar()           # Z6 真實地區資料
+    plot_region_radar()           # Z6
     print('全部完成！圖表存放於 outputs/figures_zh/')
